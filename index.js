@@ -1,115 +1,165 @@
 import express from "express";
-import admin from "firebase-admin";
+import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 /**
- * 🔹 Firebase Admin init (Storage only)
- * Cloud Run بيستخدم Service Account تلقائيًا
+ * Basic Express app (required for Cloud Run)
  */
-admin.initializeApp({
-  storageBucket: "ai-students-85242.firebasestorage.app",
-});
-
-const bucket = admin.storage().bucket();
-
 const app = express();
 app.use(express.json());
 
 /**
- * 🔹 Get curriculum by year
+ * MCP Server
  */
-app.post("/get-curriculum", async (req, res) => {
-  try {
-    const { yearId } = req.body || {};
-
-    if (!yearId) {
-      return res.status(400).json({
-        ok: false,
-        error: "yearId is required",
-      });
-    }
-
-    // دلوقتي بنجرب سنة واحدة بس
-    if (yearId !== "year_1_secondary") {
-      return res.status(404).json({
-        ok: false,
-        error: "Year not found",
-      });
-    }
-
-    const file = bucket.file("curriculum_year_1_secondary.json");
-    const [content] = await file.download();
-    const data = JSON.parse(content.toString());
-
-    return res.json({
-      ok: true,
-      data,
-    });
-  } catch (err) {
-    console.error("get-curriculum error:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Internal server error",
-    });
-  }
+const server = new McpServer({
+  name: "study-planner-mcp",
+  version: "1.0.0",
 });
 
 /**
- * 🔹 Health check
+ * ✅ Tool: get_curriculum
  */
-app.get("/", (_req, res) => {
-  res.send("Curriculum API is running");
-});
-
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`Curriculum API listening on ${port}`);
-});
 server.tool(
   "get_curriculum",
   {
-    yearId: z.string(),
+    yearId: z.string().describe("Academic year id, e.g. year_1_secondary"),
   },
   async ({ yearId }) => {
-    const r = await fetch(
-      "https://curriculum-mcp-1013957397733.europe-west1.run.app/get-curriculum",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ yearId }),
-      }
-    );
-
-    const data = await r.json().catch(() => ({}));
-
-    if (!r.ok || !data?.ok) {
+    if (yearId !== "year_1_secondary") {
       return {
         isError: true,
         content: [
           {
             type: "text",
-            text: `Failed to load curriculum: ${JSON.stringify(data)}`,
+            text: "Year not supported yet",
           },
         ],
-        structuredContent: {
-          ok: false,
-          error: data?.error ?? "unknown error",
-        },
       };
     }
 
     return {
       content: [
         {
-          type: "text",
-          text: `Curriculum loaded for ${yearId}`,
+          type: "json",
+          data: {
+            yearId: "year_1_secondary",
+            yearName: "الصف الأول الثانوي",
+            subjects: [
+              {
+                subjectId: "arabic",
+                name: "اللغة العربية",
+                order: 1,
+                lessons: [
+                  {
+                    lessonId: "ar_l1",
+                    title: "النحو: الجملة الاسمية والفعلية",
+                    estimatedMinutes: 45,
+                    difficulty: 3,
+                    order: 1,
+                  },
+                  {
+                    lessonId: "ar_l2",
+                    title: "البلاغة: التشبيه",
+                    estimatedMinutes: 40,
+                    difficulty: 3,
+                    order: 2,
+                  },
+                  {
+                    lessonId: "ar_l3",
+                    title: "القراءة: نصوص أدبية",
+                    estimatedMinutes: 35,
+                    difficulty: 2,
+                    order: 3,
+                  },
+                ],
+              },
+              {
+                subjectId: "english",
+                name: "اللغة الإنجليزية",
+                order: 2,
+                lessons: [
+                  {
+                    lessonId: "en_l1",
+                    title: "Grammar: Tenses Review",
+                    estimatedMinutes: 40,
+                    difficulty: 2,
+                    order: 1,
+                  },
+                  {
+                    lessonId: "en_l2",
+                    title: "Reading Comprehension",
+                    estimatedMinutes: 35,
+                    difficulty: 2,
+                    order: 2,
+                  },
+                  {
+                    lessonId: "en_l3",
+                    title: "Writing: Paragraph Writing",
+                    estimatedMinutes: 45,
+                    difficulty: 3,
+                    order: 3,
+                  },
+                ],
+              },
+              {
+                subjectId: "math",
+                name: "الرياضيات",
+                order: 3,
+                lessons: [
+                  {
+                    lessonId: "math_l1",
+                    title: "الجبر: المعادلات الخطية",
+                    estimatedMinutes: 50,
+                    difficulty: 4,
+                    order: 1,
+                  },
+                  {
+                    lessonId: "math_l2",
+                    title: "الهندسة: الزوايا والمثلثات",
+                    estimatedMinutes: 45,
+                    difficulty: 3,
+                    order: 2,
+                  },
+                  {
+                    lessonId: "math_l3",
+                    title: "الإحصاء: التمثيل البياني",
+                    estimatedMinutes: 40,
+                    difficulty: 3,
+                    order: 3,
+                  },
+                ],
+              },
+            ],
+          },
         },
       ],
-      structuredContent: {
-        ok: true,
-        curriculum: data.data,
-      },
     };
   }
 );
+
+/**
+ * MCP HTTP Transport
+ */
+const transport = new StreamableHTTPServerTransport();
+
+/**
+ * Routes
+ */
+app.get("/", (_req, res) => {
+  res.send("Study Planner MCP is running");
+});
+
+app.all("/mcp", async (req, res) => {
+  await transport.handleRequest(req, res, req.body);
+});
+
+/**
+ * Start server (Cloud Run)
+ */
+const port = Number(process.env.PORT || 8080);
+
+app.listen(port, "0.0.0.0", async () => {
+  console.log(`🚀 MCP server running on port ${port}`);
+  await server.connect(transport);
+});
