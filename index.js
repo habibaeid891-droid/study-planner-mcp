@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const app = express();
-app.use(express.json({ type: "*/*" }));
+app.use(express.json());
 
 /**
  * MCP Server
@@ -14,15 +14,30 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
-/**
- * Tool
- */
 server.tool(
   "get_curriculum",
-  { yearId: z.string() },
+  {
+    yearId: z.string(),
+  },
   async ({ yearId }) => {
+    if (yearId !== "year_1_secondary") {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "Year not supported yet" }],
+      };
+    }
+
     return {
-      content: [{ type: "text", text: "ok" }],
+      content: [
+        {
+          type: "json",
+          data: {
+            yearId: "year_1_secondary",
+            yearName: "الصف الأول الثانوي",
+            subjects: [],
+          },
+        },
+      ],
     };
   }
 );
@@ -38,7 +53,7 @@ const transport = new StreamableHTTPServerTransport({
  * Routes
  */
 app.get("/", (_req, res) => {
-  res.status(200).send("MCP is running");
+  res.status(200).send("Study Planner MCP is running ✅");
 });
 
 app.all("/mcp", async (req, res) => {
@@ -46,15 +61,19 @@ app.all("/mcp", async (req, res) => {
 });
 
 /**
- * 🚀 IMPORTANT PART
+ * Start Express FIRST
  */
 const port = Number(process.env.PORT || 8080);
 
 app.listen(port, "0.0.0.0", () => {
-  console.log(`🚀 HTTP listening on ${port}`);
+  console.log(`🚀 HTTP server listening on ${port}`);
+});
 
-  // ⬅️ connect AFTER listen
-  server.connect(transport).then(() => {
-    console.log("✅ MCP connected");
-  });
+/**
+ * Then connect MCP (NON blocking)
+ */
+server.connect(transport).then(() => {
+  console.log("✅ MCP connected");
+}).catch(err => {
+  console.error("❌ MCP connection error", err);
 });
