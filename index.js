@@ -141,7 +141,10 @@ server.tool(
 /**
  * MCP HTTP Transport
  */
-const transport = new StreamableHTTPServerTransport();
+const transport = new StreamableHTTPServerTransport({
+  endpoint: "/mcp",
+});
+
 
 /**
  * Routes
@@ -163,3 +166,4 @@ app.listen(port, "0.0.0.0", async () => {
   console.log(`🚀 MCP server running on port ${port}`);
   await server.connect(transport);
 });
+
