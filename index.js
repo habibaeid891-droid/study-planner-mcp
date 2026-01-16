@@ -223,15 +223,15 @@ function patchesToData(patches = [], allowClear = false) {
 server.tool(
   "get_curriculum",
   {
-    yearId: z.string(),
+yearid: z.string()
   },
-  async ({ yearId }) => {
+  async ({ yearid }) => {
     return {
       content: [
         {
           type: "json",
           data: {
-            yearId,
+            yearid,
             subjects: ["Math", "Arabic", "English"],
           },
         },
@@ -330,3 +330,4 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
