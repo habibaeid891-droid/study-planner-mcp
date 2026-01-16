@@ -1,7 +1,9 @@
 import express from "express";
 import { z } from "zod";
+
 import { McpServer } from "@modelcontextprotocol/sdk";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/dist/server/streamableHttp.js";
+
 
 const app = express();
 app.use(express.json());
@@ -77,4 +79,5 @@ server.connect(transport).then(() => {
 }).catch(err => {
   console.error("❌ MCP connection error", err);
 });
+
 
