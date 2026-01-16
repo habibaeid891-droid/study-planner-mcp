@@ -64,3 +64,52 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`Curriculum API listening on ${port}`);
 });
+server.tool(
+  "get_curriculum",
+  {
+    yearId: z.string(),
+  },
+  async ({ yearId }) => {
+    const r = await fetch(
+      "https://curriculum-mcp-1013957397733.europe-west1.run.app/get-curriculum",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ yearId }),
+      }
+    );
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok || !data?.ok) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Failed to load curriculum: ${JSON.stringify(data)}`,
+          },
+        ],
+        structuredContent: {
+          ok: false,
+          error: data?.error ?? "unknown error",
+        },
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Curriculum loaded for ${yearId}`,
+        },
+      ],
+      structuredContent: {
+        ok: true,
+        curriculum: data.data,
+      },
+    };
+  }
+);
