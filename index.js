@@ -229,7 +229,7 @@ yearId: z.string()
     return {
       content: [
         {
-          type: "string",
+          type: "text",
           data: {
             yearId,
             subjects: ["Math", "Arabic", "English"],
@@ -330,6 +330,7 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
 
 
 
