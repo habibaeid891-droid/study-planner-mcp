@@ -1,75 +1,77 @@
 import express from "express";
-import admin from "firebase-admin";
-
-/**
- * 🔹 Firebase Admin init (Storage only)
- * Cloud Run بيستخدم Service Account تلقائيًا
- */
-admin.initializeApp({
-  storageBucket: "ai-students-85242.firebasestorage.app",
-});
-
-const bucket = admin.storage().bucket();
+import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const app = express();
 app.use(express.json());
 
 /**
- * 🔹 Get curriculum by year
+ * 1️⃣ MCP Server
  */
-app.post("/get-curriculum", async (req, res) => {
+const server = new McpServer({
+  name: "study-planner-curriculum",
+  version: "1.0.0",
+});
+
+/**
+ * 2️⃣ Tool: get_curriculum
+ */
+server.tool(
+  "get_curriculum",
+  {
+    yearId: z.string().describe("Academic year id مثل: year_1_secondary"),
+  },
+  async ({ yearId }) => {
+    // response لازم يكون text فقط
+    const result = {
+      yearId,
+      subjects: ["Math", "Arabic", "English"],
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result),
+        },
+      ],
+    };
+  }
+);
+
+/**
+ * 3️⃣ HTTP Transport (مهم جداً)
+ */
+const transport = new StreamableHTTPServerTransport({
+  endpoint: "/mcp",
+});
+
+/**
+ * 4️⃣ MCP endpoint
+ */
+app.all("/mcp", async (req, res) => {
   try {
-    const { yearId } = req.body || {};
-
-    if (!yearId) {
-      return res.status(400).json({
-        type: "text",
-        text: "yearId is required",
-      });
-    }
-
-    // دلوقتي بنجرب سنة واحدة بس
-    if (yearId !== "year_1_secondary") {
-      return res.status(404).json({
-        type: "text",
-        text: "Year not found",
-      });
-    }
-
-    const file = bucket.file("curriculum_year_1_secondary.json");
-    const [content] = await file.download();
-    const data = JSON.parse(content.toString());
-
-    // Format response according to MCP spec
-    return res.json({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(data, null, 2), // تحويل البيانات لنص منظم
-        }
-      ],
-    });
+    await transport.handleRequest(req, res, req.body);
   } catch (err) {
-    console.error("get-curriculum error:", err);
-    return res.status(500).json({
-      content: [
-        {
-          type: "text",
-          text: `Internal server error: ${err.message}`,
-        }
-      ],
-    });
+    console.error("MCP error:", err);
+    res.status(500).json({ error: String(err) });
   }
 });
 
 /**
- * 🔹 Health check
+ * 5️⃣ Health check
  */
 app.get("/", (_req, res) => {
-  res.send("Curriculum API is running");
+  res.send("OK - MCP server running");
 });
 
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`Curriculum API listening on ${port}`);
+/**
+ * 6️⃣ Start server
+ */
+const PORT = Number(process.env.PORT || 8080);
+
+app.listen(PORT, "0.0.0.0", async () => {
+  await server.connect(transport);
+  console.log(`✅ MCP HTTP Server running on port ${PORT}`);
 });
