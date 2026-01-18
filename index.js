@@ -8,6 +8,7 @@ app.use(express.json());
 
 /**
  * 1️⃣ MCP Server
+ edit
  */
 const server = new McpServer({
   name: "study-planner-curriculum",
@@ -75,3 +76,4 @@ app.listen(PORT, "0.0.0.0", async () => {
   await server.connect(transport);
   console.log(`✅ MCP HTTP Server running on port ${PORT}`);
 });
+
