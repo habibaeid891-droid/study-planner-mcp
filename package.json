@@ -1,5 +1,5 @@
 {
-  "name": "agent-bridge-mcp",
+  "name": "study-planner-mcp",
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
@@ -9,3 +9,4 @@
     "zod": "^3.25.0"
   }
 }
+
