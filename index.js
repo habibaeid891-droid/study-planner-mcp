@@ -101,6 +101,9 @@ const transport = new StreamableHTTPServerTransport({});
 app.get("/", (_req, res) => {
   res.status(200).send("MCP Server is running ✅");
 });
+app.post("/mcp", async (req, res) => {
+  await transport.handleRequest(req, res, req.body);
+});
 
 app.all("/mcp", async (req, res) => {
   try {
@@ -117,3 +120,4 @@ const port = Number(process.env.PORT || 8080);
 app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
+
