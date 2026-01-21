@@ -2,50 +2,53 @@ import express from "express";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import admin from "firebase-admin";
 
-const app = express();
-
-/* ❗ json middleware برا /mcp */
-app.use((req, res, next) => {
-  if (req.path === "/mcp") return next();
-  express.json({ limit: "1mb" })(req, res, next);
+/* ---------- Firebase ---------- */
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
+  storageBucket: "ai-students-85242.appspot.com",
 });
 
+/* ---------- App ---------- */
+const app = express();
+app.use(express.json({ limit: "1mb" }));
+
+/* ---------- MCP ---------- */
 const server = new McpServer({
   name: "study-planner-mcp",
   version: "1.0.0",
 });
 
-const CURRICULUM_FN =
-  process.env.CURRICULUM_FN_URL ||
-  "https://us-central1-ai-students-85242.cloudfunctions.net/getCurriculum";
-
 /* ---------- TOOLS ---------- */
 
+/** Load curriculum from Firebase Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
   async ({ yearId }) => {
-    const url = new URL(CURRICULUM_FN);
-    url.searchParams.set("yearId", yearId);
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`curriculums/${yearId}.json`);
 
-    const r = await fetch(url);
-    if (!r.ok) {
+    const [exists] = await file.exists();
+    if (!exists) {
       return {
         isError: true,
-        content: [{ type: "text", text: "❌ فشل تحميل المنهج" }],
+        content: [{ type: "text", text: "❌ المنهج غير موجود" }],
       };
     }
 
-    const curriculum = await r.json();
+    const [buffer] = await file.download();
+    const curriculum = JSON.parse(buffer.toString("utf-8"));
 
     return {
-      content: [{ type: "text", text: "📘 تم تحميل المنهج" }],
+      content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
       structuredContent: curriculum,
     };
   }
 );
 
+/** Generate schedule */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -97,34 +100,22 @@ server.tool(
   }
 );
 
-/* ---------- MCP TRANSPORT ---------- */
+/* ---------- Transport ---------- */
+const transport = new StreamableHTTPServerTransport({});
 
-const transport = new StreamableHTTPServerTransport();
-
-/* ---------- ROUTES ---------- */
-
+/* ---------- Routes ---------- */
 app.get("/", (_req, res) => {
-  res.status(200).send("MCP Server is running ✅");
+  res.send("MCP Server is running ✅");
 });
 
 app.all("/mcp", async (req, res) => {
-  try {
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("MCP error:", err);
-    res.status(500).end();
-  }
+  await transport.handleRequest(req, res, req.body);
 });
 
-/* ---------- LISTEN ---------- */
-
+/* ---------- Listen ---------- */
 const port = Number(process.env.PORT || 8080);
 app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
-/* ---------- CONNECT (ده خط أحمر) ---------- */
-
-server.connect(transport).then(() => {
-  console.log("MCP connected ✅");
-});
+server.connect(transport);
