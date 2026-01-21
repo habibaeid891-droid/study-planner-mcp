@@ -7,7 +7,7 @@ import admin from "firebase-admin";
 /* ---------- Firebase ---------- */
 if (!admin.apps.length) {
   admin.initializeApp({
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    storageBucket: "ai-students-85242.appspot.com",
   });
 }
 
@@ -23,41 +23,31 @@ const server = new McpServer({
 
 /* ---------- TOOLS ---------- */
 
-/** load curriculum from Firebase Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
   async ({ yearId }) => {
-    try {
-      const bucket = admin.storage().bucket();
-      const file = bucket.file(`curriculums/${yearId}.json`);
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`curriculums/${yearId}.json`);
 
-      const [exists] = await file.exists();
-      if (!exists) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: "❌ المنهج غير موجود" }],
-        };
-      }
-
-      const [buffer] = await file.download();
-      const curriculum = JSON.parse(buffer.toString("utf-8"));
-
-      return {
-        content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
-        structuredContent: curriculum,
-      };
-    } catch (err) {
-      console.error("load_curriculum error:", err);
+    const [exists] = await file.exists();
+    if (!exists) {
       return {
         isError: true,
-        content: [{ type: "text", text: "❌ خطأ أثناء تحميل المنهج" }],
+        content: [{ type: "text", text: "❌ المنهج غير موجود" }],
       };
     }
+
+    const [buffer] = await file.download();
+    const curriculum = JSON.parse(buffer.toString("utf-8"));
+
+    return {
+      content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
+      structuredContent: curriculum,
+    };
   }
 );
 
-/** generate schedule */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -87,15 +77,15 @@ server.tool(
     );
 
     const schedule = [];
-    let index = 0;
+    let i = 0;
     let day = 1;
 
-    while (index < allLessons.length) {
+    while (i < allLessons.length) {
       schedule.push({
         day,
-        lessons: allLessons.slice(index, index + lessonsPerDay),
+        lessons: allLessons.slice(i, i + lessonsPerDay),
       });
-      index += lessonsPerDay;
+      i += lessonsPerDay;
       day++;
     }
 
@@ -118,27 +108,16 @@ app.get("/", (_req, res) => {
 });
 
 app.all("/mcp", async (req, res) => {
-  try {
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("MCP request error:", err);
-    res.status(500).json({ ok: false });
-  }
+  await transport.handleRequest(req, res, req.body);
 });
 
-/* ---------- START SERVER ---------- */
+/* ---------- Start ---------- */
 const port = Number(process.env.PORT || 8080);
 
 app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
-/* ---------- CONNECT MCP ---------- */
-server
-  .connect(transport)
-  .then(() => {
-    console.log("MCP connected ✅");
-  })
-  .catch((err) => {
-    console.error("MCP connect failed:", err);
-  });
+server.connect(transport).then(() => {
+  console.log("MCP connected ✅");
+});
