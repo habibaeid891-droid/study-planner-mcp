@@ -5,10 +5,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import admin from "firebase-admin";
 
 /* ---------- Firebase ---------- */
-admin.initializeApp({
-  credential: admin.credential.applicationDefault(),
-  storageBucket: "ai-students-85242.appspot.com",
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  });
+}
 
 /* ---------- App ---------- */
 const app = express();
@@ -123,3 +124,4 @@ server.connect(transport).then(() => {
 }).catch(err => {
   console.error("MCP connect failed", err);
 });
+
