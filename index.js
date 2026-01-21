@@ -101,12 +101,18 @@ const transport = new StreamableHTTPServerTransport({});
 app.get("/", (_req, res) => {
   res.status(200).send("MCP Server is running ✅");
 });
-app.post("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res, req.body);
-});
 
 app.all("/mcp", async (req, res) => {
   try {
+    // إصلاح Accept header
+    const accept = (req.headers.accept || "").toLowerCase();
+    if (!accept.includes("text/event-stream")) {
+      req.headers.accept = "application/json, text/event-stream";
+    }
+    if (!req.headers["content-type"]) {
+      req.headers["content-type"] = "application/json";
+    }
+
     await transport.handleRequest(req, res, req.body);
   } catch (err) {
     console.error(err);
@@ -121,3 +127,8 @@ app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
+/* ---------- CONNECT MCP (مهم جدًا) ---------- */
+
+server.connect(transport).then(() => {
+  console.log("MCP connected ✅");
+});
