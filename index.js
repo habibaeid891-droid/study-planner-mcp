@@ -4,39 +4,36 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Storage } from "@google-cloud/storage";
 
-/* ---------------- App ---------------- */
+/* ---------- App ---------- */
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-/* ---------------- Config ---------------- */
-// حطيه ثابت أو خليه ENV
-const BUCKET_NAME =
-  process.env.BUCKET_NAME || "ai-students-85242.appspot.com";
+/* ---------- Storage ---------- */
+const storage = new Storage();
+const BUCKET_NAME = "ai-students-85242.appspot.com";
 
-const storage = new Storage(); // Cloud Run بياخد ADC تلقائيًا
-
-/* ---------------- MCP ---------------- */
+/* ---------- MCP ---------- */
 const server = new McpServer({
   name: "study-planner-mcp",
   version: "1.0.0",
 });
 
-/* ---------------- Tools ---------------- */
+/* ---------- Tools ---------- */
 
-/** load_curriculum: يقرأ JSON من Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
   async ({ yearId }) => {
     try {
-      const bucket = storage.bucket(BUCKET_NAME);
-      const file = bucket.file(`curriculums/${yearId}.json`);
+      const file = storage
+        .bucket(BUCKET_NAME)
+        .file(`curriculums/${yearId}.json`);
 
       const [exists] = await file.exists();
       if (!exists) {
         return {
           isError: true,
-          content: [{ type: "text", text: "❌ المنهج غير موجود في Storage" }],
+          content: [{ type: "text", text: "❌ المنهج غير موجود" }],
         };
       }
 
@@ -44,20 +41,19 @@ server.tool(
       const curriculum = JSON.parse(buf.toString("utf-8"));
 
       return {
-        content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
+        content: [{ type: "text", text: "📘 تم تحميل المنهج" }],
         structuredContent: curriculum,
       };
-    } catch (err) {
-      console.error("load_curriculum error:", err);
+    } catch (e) {
+      console.error(e);
       return {
         isError: true,
-        content: [{ type: "text", text: "❌ حصل خطأ أثناء تحميل المنهج" }],
+        content: [{ type: "text", text: "❌ خطأ أثناء تحميل المنهج" }],
       };
     }
   }
 );
 
-/** generate_schedule_from_curriculum */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -78,7 +74,7 @@ server.tool(
     lessonsPerDay: z.number().int().min(1).max(5),
   },
   async ({ curriculum, lessonsPerDay }) => {
-    const allLessons = curriculum.subjects.flatMap((s) =>
+    const lessons = curriculum.subjects.flatMap((s) =>
       s.lessons.map((l) => ({
         subject: s.name,
         lessonId: l.lessonId,
@@ -90,45 +86,37 @@ server.tool(
     let i = 0;
     let day = 1;
 
-    while (i < allLessons.length) {
+    while (i < lessons.length) {
       schedule.push({
         day,
-        lessons: allLessons.slice(i, i + lessonsPerDay),
+        lessons: lessons.slice(i, i + lessonsPerDay),
       });
       i += lessonsPerDay;
       day++;
     }
 
     return {
-      content: [{ type: "text", text: "📅 جدول مبني على المنهج" }],
+      content: [{ type: "text", text: "📅 تم إنشاء الجدول" }],
       structuredContent: { yearId: curriculum.yearId, schedule },
     };
   }
 );
 
-/* ---------------- Transport ---------------- */
+/* ---------- Transport ---------- */
 const transport = new StreamableHTTPServerTransport({});
 
-/* ---------------- Routes ---------------- */
-app.get("/", (_req, res) => res.status(200).send("MCP Server is running ✅"));
+/* ---------- Routes ---------- */
 
-app.all("/mcp", async (req, res) => {
-  try {
-    await transport.handleRequest(req, res, req.body);
-  } catch (err) {
-    console.error("MCP handleRequest error:", err);
-    res.status(500).json({ ok: false });
-  }
+app.get("/", (_req, res) => {
+  res.send("MCP Server is running ✅");
 });
 
-/* ---------------- Start ---------------- */
+app.all("/mcp", async (req, res) => {
+  await transport.handleRequest(req, res, req.body);
+});
+
+/* ---------- Start ---------- */
 const port = Number(process.env.PORT || 8080);
 app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
-
-// Connect بعد ما السيرفر يبدأ
-server
-  .connect(transport)
-  .then(() => console.log("MCP connected ✅"))
-  .catch((err) => console.error("MCP connect failed:", err));
