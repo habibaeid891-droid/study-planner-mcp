@@ -4,7 +4,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+
+/* ❗ json middleware برا /mcp */
+app.use((req, res, next) => {
+  if (req.path === "/mcp") return next();
+  express.json({ limit: "1mb" })(req, res, next);
+});
 
 const server = new McpServer({
   name: "study-planner-mcp",
@@ -92,9 +97,9 @@ server.tool(
   }
 );
 
-/* ---------- TRANSPORT ---------- */
+/* ---------- MCP TRANSPORT ---------- */
 
-const transport = new StreamableHTTPServerTransport({});
+const transport = new StreamableHTTPServerTransport();
 
 /* ---------- ROUTES ---------- */
 
@@ -104,19 +109,10 @@ app.get("/", (_req, res) => {
 
 app.all("/mcp", async (req, res) => {
   try {
-    // إصلاح Accept header
-    const accept = (req.headers.accept || "").toLowerCase();
-    if (!accept.includes("text/event-stream")) {
-      req.headers.accept = "application/json, text/event-stream";
-    }
-    if (!req.headers["content-type"]) {
-      req.headers["content-type"] = "application/json";
-    }
-
     await transport.handleRequest(req, res, req.body);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false });
+    console.error("MCP error:", err);
+    res.status(500).end();
   }
 });
 
@@ -127,7 +123,7 @@ app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
-/* ---------- CONNECT MCP (مهم جدًا) ---------- */
+/* ---------- CONNECT (ده خط أحمر) ---------- */
 
 server.connect(transport).then(() => {
   console.log("MCP connected ✅");
