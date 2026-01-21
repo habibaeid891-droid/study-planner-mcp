@@ -22,7 +22,6 @@ const server = new McpServer({
 
 /* ---------- TOOLS ---------- */
 
-/** Load curriculum from Firebase Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
@@ -48,7 +47,6 @@ server.tool(
   }
 );
 
-/** Generate schedule */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -112,10 +110,14 @@ app.all("/mcp", async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 });
 
-/* ---------- Listen ---------- */
+/* ---------- START SERVER ---------- */
 const port = Number(process.env.PORT || 8080);
-app.listen(port, "0.0.0.0", () => {
-  console.log("Listening on", port);
-});
 
-server.connect(transport);
+(async () => {
+  app.listen(port, "0.0.0.0", () => {
+    console.log("Listening on", port);
+  });
+
+  await server.connect(transport);
+  console.log("MCP connected ✅");
+})();
