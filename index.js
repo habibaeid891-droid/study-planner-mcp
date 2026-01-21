@@ -1,122 +1,151 @@
-import express from "express";
+import readline from "readline";
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { Storage } from "@google-cloud/storage";
+import admin from "firebase-admin";
 
-/* ---------- App ---------- */
-const app = express();
-app.use(express.json({ limit: "1mb" }));
+/* =========================
+   Firebase Admin (Cloud Run)
+========================= */
 
-/* ---------- Storage ---------- */
-const storage = new Storage();
-const BUCKET_NAME = "ai-students-85242.appspot.com";
-
-/* ---------- MCP ---------- */
-const server = new McpServer({
-  name: "study-planner-mcp",
-  version: "1.0.0",
+admin.initializeApp({
+  storageBucket: "ai-students-85242.firebasestorage.app"
 });
 
-/* ---------- Tools ---------- */
+const bucket = admin.storage().bucket();
 
-server.tool(
-  "load_curriculum",
-  { yearId: z.string() },
-  async ({ yearId }) => {
-    try {
-      const file = storage
-        .bucket(BUCKET_NAME)
-        .file(`curriculums/${yearId}.json`);
+/* =========================
+   Read curriculum from Storage
+========================= */
 
-      const [exists] = await file.exists();
-      if (!exists) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: "❌ المنهج غير موجود" }],
-        };
+async function getCurriculaFromStorage() {
+  const file = bucket.file("curriculum_year_1_secondary.json");
+
+  const [exists] = await file.exists();
+  if (!exists) {
+    throw new Error("Curriculum file not found in Firebase Storage");
+  }
+
+  const [contents] = await file.download();
+  const jsonData = JSON.parse(contents.toString("utf-8"));
+
+  return jsonData;
+}
+
+/* =========================
+   MCP Core (stdio)
+========================= */
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const tools = new Map();
+
+function registerTool(name, definition, run) {
+  tools.set(name, { definition, run });
+}
+
+function ok(id, result) {
+  return { jsonrpc: "2.0", id, result };
+}
+
+function err(id, code, message) {
+  return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+/* =========================
+   Tool: get_curricula
+========================= */
+
+registerTool(
+  "get_curricula",
+  {
+    name: "get_curricula",
+    description: "Load curriculum JSON from Firebase Storage",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+      required: []
+    }
+  },
+  async () => {
+    return await getCurriculaFromStorage();
+  }
+);
+
+/* =========================
+   MCP Loop
+========================= */
+
+rl.on("line", async (line) => {
+  if (!line.trim()) return;
+
+  let req;
+  try {
+    req = JSON.parse(line);
+  } catch {
+    console.log(JSON.stringify(err(null, -32700, "Invalid JSON")));
+    return;
+  }
+
+  const { id, method, params } = req;
+
+  try {
+    if (method === "initialize") {
+      console.log(
+        JSON.stringify(
+          ok(id, {
+            protocolVersion: "0.1",
+            serverInfo: {
+              name: "study-planner-mcp",
+              version: "1.0.0"
+            }
+          })
+        )
+      );
+      return;
+    }
+
+    if (method === "tools/list") {
+      console.log(
+        JSON.stringify(
+          ok(id, {
+            tools: Array.from(tools.values()).map(t => t.definition)
+          })
+        )
+      );
+      return;
+    }
+
+    if (method === "tools/call") {
+      const { name, arguments: args } = params || {};
+      const tool = tools.get(name);
+
+      if (!tool) {
+        console.log(JSON.stringify(err(id, -32601, "Tool not found")));
+        return;
       }
 
-      const [buf] = await file.download();
-      const curriculum = JSON.parse(buf.toString("utf-8"));
+      const output = await tool.run(args || {});
 
-      return {
-        content: [{ type: "text", text: "📘 تم تحميل المنهج" }],
-        structuredContent: curriculum,
-      };
-    } catch (e) {
-      console.error(e);
-      return {
-        isError: true,
-        content: [{ type: "text", text: "❌ خطأ أثناء تحميل المنهج" }],
-      };
-    }
-  }
-);
-
-server.tool(
-  "generate_schedule_from_curriculum",
-  {
-    curriculum: z.object({
-      yearId: z.string(),
-      subjects: z.array(
-        z.object({
-          name: z.string(),
-          lessons: z.array(
-            z.object({
-              lessonId: z.string(),
-              title: z.string(),
-            })
-          ),
-        })
-      ),
-    }),
-    lessonsPerDay: z.number().int().min(1).max(5),
-  },
-  async ({ curriculum, lessonsPerDay }) => {
-    const lessons = curriculum.subjects.flatMap((s) =>
-      s.lessons.map((l) => ({
-        subject: s.name,
-        lessonId: l.lessonId,
-        title: l.title,
-      }))
-    );
-
-    const schedule = [];
-    let i = 0;
-    let day = 1;
-
-    while (i < lessons.length) {
-      schedule.push({
-        day,
-        lessons: lessons.slice(i, i + lessonsPerDay),
-      });
-      i += lessonsPerDay;
-      day++;
+      console.log(
+        JSON.stringify(
+          ok(id, {
+            content: [
+              {
+                type: "json",
+                json: output
+              }
+            ]
+          })
+        )
+      );
+      return;
     }
 
-    return {
-      content: [{ type: "text", text: "📅 تم إنشاء الجدول" }],
-      structuredContent: { yearId: curriculum.yearId, schedule },
-    };
+    console.log(JSON.stringify(err(id, -32601, "Method not found")));
+  } catch (e) {
+    console.log(JSON.stringify(err(id, -32000, e.message)));
   }
-);
-
-/* ---------- Transport ---------- */
-const transport = new StreamableHTTPServerTransport({});
-
-/* ---------- Routes ---------- */
-
-app.get("/", (_req, res) => {
-  res.send("MCP Server is running ✅");
-});
-
-app.all("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res, req.body);
-});
-
-/* ---------- Start ---------- */
-const port = Number(process.env.PORT || 8080);
-app.listen(port, "0.0.0.0", () => {
-  console.log("Listening on", port);
 });
