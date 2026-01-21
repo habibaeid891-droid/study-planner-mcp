@@ -2,52 +2,62 @@ import express from "express";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import admin from "firebase-admin";
+import { Storage } from "@google-cloud/storage";
 
-/* ---------- Firebase ---------- */
-if (!admin.apps.length) {
-  admin.initializeApp({
-    storageBucket: "ai-students-85242.appspot.com",
-  });
-}
-
-/* ---------- App ---------- */
+/* ---------------- App ---------------- */
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-/* ---------- MCP ---------- */
+/* ---------------- Config ---------------- */
+// حطيه ثابت أو خليه ENV
+const BUCKET_NAME =
+  process.env.BUCKET_NAME || "ai-students-85242.appspot.com";
+
+const storage = new Storage(); // Cloud Run بياخد ADC تلقائيًا
+
+/* ---------------- MCP ---------------- */
 const server = new McpServer({
   name: "study-planner-mcp",
   version: "1.0.0",
 });
 
-/* ---------- TOOLS ---------- */
+/* ---------------- Tools ---------------- */
 
+/** load_curriculum: يقرأ JSON من Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
   async ({ yearId }) => {
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(`curriculums/${yearId}.json`);
+    try {
+      const bucket = storage.bucket(BUCKET_NAME);
+      const file = bucket.file(`curriculums/${yearId}.json`);
 
-    const [exists] = await file.exists();
-    if (!exists) {
+      const [exists] = await file.exists();
+      if (!exists) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "❌ المنهج غير موجود في Storage" }],
+        };
+      }
+
+      const [buf] = await file.download();
+      const curriculum = JSON.parse(buf.toString("utf-8"));
+
+      return {
+        content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
+        structuredContent: curriculum,
+      };
+    } catch (err) {
+      console.error("load_curriculum error:", err);
       return {
         isError: true,
-        content: [{ type: "text", text: "❌ المنهج غير موجود" }],
+        content: [{ type: "text", text: "❌ حصل خطأ أثناء تحميل المنهج" }],
       };
     }
-
-    const [buffer] = await file.download();
-    const curriculum = JSON.parse(buffer.toString("utf-8"));
-
-    return {
-      content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
-      structuredContent: curriculum,
-    };
   }
 );
 
+/** generate_schedule_from_curriculum */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -91,33 +101,34 @@ server.tool(
 
     return {
       content: [{ type: "text", text: "📅 جدول مبني على المنهج" }],
-      structuredContent: {
-        yearId: curriculum.yearId,
-        schedule,
-      },
+      structuredContent: { yearId: curriculum.yearId, schedule },
     };
   }
 );
 
-/* ---------- Transport ---------- */
+/* ---------------- Transport ---------------- */
 const transport = new StreamableHTTPServerTransport({});
 
-/* ---------- Routes ---------- */
-app.get("/", (_req, res) => {
-  res.send("MCP Server is running ✅");
-});
+/* ---------------- Routes ---------------- */
+app.get("/", (_req, res) => res.status(200).send("MCP Server is running ✅"));
 
 app.all("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res, req.body);
+  try {
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    console.error("MCP handleRequest error:", err);
+    res.status(500).json({ ok: false });
+  }
 });
 
-/* ---------- Start ---------- */
+/* ---------------- Start ---------------- */
 const port = Number(process.env.PORT || 8080);
-
 app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
-server.connect(transport).then(() => {
-  console.log("MCP connected ✅");
-});
+// Connect بعد ما السيرفر يبدأ
+server
+  .connect(transport)
+  .then(() => console.log("MCP connected ✅"))
+  .catch((err) => console.error("MCP connect failed:", err));
