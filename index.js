@@ -1,6 +1,7 @@
 import readline from "readline";
 import { z } from "zod";
 import admin from "firebase-admin";
+import http from "http";
 
 /* =========================
    Firebase Admin (Cloud Run)
@@ -148,4 +149,17 @@ rl.on("line", async (line) => {
   } catch (e) {
     console.log(JSON.stringify(err(id, -32000, e.message)));
   }
+});
+
+/* =========================
+   Dummy HTTP Server (Cloud Run)
+========================= */
+
+const PORT = process.env.PORT || 8080;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("MCP Server is running\n");
+}).listen(PORT, () => {
+  console.log(`HTTP server listening on port ${PORT}`);
 });
