@@ -113,11 +113,13 @@ app.all("/mcp", async (req, res) => {
 /* ---------- START SERVER ---------- */
 const port = Number(process.env.PORT || 8080);
 
-(async () => {
-  app.listen(port, "0.0.0.0", () => {
-    console.log("Listening on", port);
-  });
+app.listen(port, "0.0.0.0", () => {
+  console.log("Listening on", port);
+});
 
-  await server.connect(transport);
+/* 🔥  بدون await */
+server.connect(transport).then(() => {
   console.log("MCP connected ✅");
-})();
+}).catch(err => {
+  console.error("MCP connect failed", err);
+});
