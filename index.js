@@ -23,31 +23,41 @@ const server = new McpServer({
 
 /* ---------- TOOLS ---------- */
 
+/** load curriculum from Firebase Storage */
 server.tool(
   "load_curriculum",
   { yearId: z.string() },
   async ({ yearId }) => {
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(`curriculums/${yearId}.json`);
+    try {
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(`curriculums/${yearId}.json`);
 
-    const [exists] = await file.exists();
-    if (!exists) {
+      const [exists] = await file.exists();
+      if (!exists) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "❌ المنهج غير موجود" }],
+        };
+      }
+
+      const [buffer] = await file.download();
+      const curriculum = JSON.parse(buffer.toString("utf-8"));
+
+      return {
+        content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
+        structuredContent: curriculum,
+      };
+    } catch (err) {
+      console.error("load_curriculum error:", err);
       return {
         isError: true,
-        content: [{ type: "text", text: "❌ المنهج غير موجود" }],
+        content: [{ type: "text", text: "❌ خطأ أثناء تحميل المنهج" }],
       };
     }
-
-    const [buffer] = await file.download();
-    const curriculum = JSON.parse(buffer.toString("utf-8"));
-
-    return {
-      content: [{ type: "text", text: "📘 تم تحميل المنهج بنجاح" }],
-      structuredContent: curriculum,
-    };
   }
 );
 
+/** generate schedule */
 server.tool(
   "generate_schedule_from_curriculum",
   {
@@ -77,15 +87,15 @@ server.tool(
     );
 
     const schedule = [];
-    let i = 0;
+    let index = 0;
     let day = 1;
 
-    while (i < allLessons.length) {
+    while (index < allLessons.length) {
       schedule.push({
         day,
-        lessons: allLessons.slice(i, i + lessonsPerDay),
+        lessons: allLessons.slice(index, index + lessonsPerDay),
       });
-      i += lessonsPerDay;
+      index += lessonsPerDay;
       day++;
     }
 
@@ -108,7 +118,12 @@ app.get("/", (_req, res) => {
 });
 
 app.all("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res, req.body);
+  try {
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    console.error("MCP request error:", err);
+    res.status(500).json({ ok: false });
+  }
 });
 
 /* ---------- START SERVER ---------- */
@@ -118,10 +133,12 @@ app.listen(port, "0.0.0.0", () => {
   console.log("Listening on", port);
 });
 
-/* 🔥  بدون await */
-server.connect(transport).then(() => {
-  console.log("MCP connected ✅");
-}).catch(err => {
-  console.error("MCP connect failed", err);
-});
-
+/* ---------- CONNECT MCP ---------- */
+server
+  .connect(transport)
+  .then(() => {
+    console.log("MCP connected ✅");
+  })
+  .catch((err) => {
+    console.error("MCP connect failed:", err);
+  });
