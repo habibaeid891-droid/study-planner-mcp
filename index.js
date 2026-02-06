@@ -322,6 +322,69 @@ ${subjects
 );
 
 
+server.tool(
+  "assign_schedule_to_students_by_year",
+  {
+    yearId: z.string(),
+    scheduleId: z.string(), // 👈 reference بس
+  },
+  async ({ yearId, scheduleId }) => {
+    try {
+      const studentsSnapshot = await db
+        .collection("students")
+        .where("yearId", "==", yearId)
+        .get();
+
+      if (studentsSnapshot.empty) {
+        return {
+          content: [{ type: "text", text: "⚠️ No students found" }],
+          structuredContent: { ok: true, yearId, assignedCount: 0 },
+        };
+      }
+
+      const batch = db.batch();
+      let assignedCount = 0;
+
+      studentsSnapshot.forEach((doc) => {
+        const studentId = doc.id;
+
+        const ref = db
+          .collection("students")
+          .doc(studentId)
+          .collection("studyPlans")
+          .doc("active");
+
+        batch.set(ref, {
+          yearId,
+          scheduleRef: `yearSchedules/${yearId}/schedules/${scheduleId}`,
+          status: "active",
+          progress: {},
+          assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        assignedCount++;
+      });
+
+      await batch.commit();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Schedule assigned to ${assignedCount} students`,
+          },
+        ],
+        structuredContent: { ok: true, yearId, assignedCount },
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: err.message }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+  }
+);
 
 
 // ✅ Tool #1: log_message (Firebase save + Redis append)
@@ -843,3 +906,4 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
