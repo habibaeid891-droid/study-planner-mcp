@@ -45,6 +45,11 @@ const EDU_AGENT_URL =
   "https://us-central1-ai-students-85242.cloudfunctions.net/jsonFormatAgent/chat";
 
 const app = express();
+
+// 👉 مهم جدًا: سيبي /mcp من غير body-parser
+app.use("/mcp", (req, res, next) => next());
+
+// باقي الـ APIs عادي
 app.use(express.json({ limit: "1mb" }));
 
 /**
@@ -906,4 +911,5 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
 
