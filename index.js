@@ -831,6 +831,9 @@ const transport = new StreamableHTTPServerTransport({});
  * 4) Express routes
  */
 app.get("/", (_req, res) => res.status(200).send("OK - agent-bridge is running"));
+app.get("/mcp", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
 
 app.all("/mcp", async (req, res) => {
   const t0 = Date.now();
@@ -911,5 +914,6 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
 
 
