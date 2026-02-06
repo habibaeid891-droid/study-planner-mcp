@@ -1,7 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { HTTPServerTransport } from "@modelcontextprotocol/sdk/server/http.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Redis } from "@upstash/redis";
 import admin from "firebase-admin";
 
@@ -45,11 +45,6 @@ const EDU_AGENT_URL =
   "https://us-central1-ai-students-85242.cloudfunctions.net/jsonFormatAgent/chat";
 
 const app = express();
-
-// 👉 مهم جدًا: سيبي /mcp من غير body-parser
-app.use("/mcp", (req, res, next) => next());
-
-// باقي الـ APIs عادي
 app.use(express.json({ limit: "1mb" }));
 
 /**
@@ -327,69 +322,6 @@ ${subjects
 );
 
 
-server.tool(
-  "assign_schedule_to_students_by_year",
-  {
-    yearId: z.string(),
-    scheduleId: z.string(), // 👈 reference بس
-  },
-  async ({ yearId, scheduleId }) => {
-    try {
-      const studentsSnapshot = await db
-        .collection("students")
-        .where("yearId", "==", yearId)
-        .get();
-
-      if (studentsSnapshot.empty) {
-        return {
-          content: [{ type: "text", text: "⚠️ No students found" }],
-          structuredContent: { ok: true, yearId, assignedCount: 0 },
-        };
-      }
-
-      const batch = db.batch();
-      let assignedCount = 0;
-
-      studentsSnapshot.forEach((doc) => {
-        const studentId = doc.id;
-
-        const ref = db
-          .collection("students")
-          .doc(studentId)
-          .collection("studyPlans")
-          .doc("active");
-
-        batch.set(ref, {
-          yearId,
-          scheduleRef: `yearSchedules/${yearId}/schedules/${scheduleId}`,
-          status: "active",
-          progress: {},
-          assignedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        assignedCount++;
-      });
-
-      await batch.commit();
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `✅ Schedule assigned to ${assignedCount} students`,
-          },
-        ],
-        structuredContent: { ok: true, yearId, assignedCount },
-      };
-    } catch (err) {
-      return {
-        isError: true,
-        content: [{ type: "text", text: err.message }],
-        structuredContent: { ok: false, error: err.message },
-      };
-    }
-  }
-);
 
 
 // ✅ Tool #1: log_message (Firebase save + Redis append)
@@ -825,15 +757,12 @@ ${summary}
 /**
  * 3) Streamable HTTP transport
  */
-const transport = new HTTPServerTransport();
+const transport = new StreamableHTTPServerTransport({});
 
 /**
  * 4) Express routes
  */
 app.get("/", (_req, res) => res.status(200).send("OK - agent-bridge is running"));
-app.get("/mcp", (_req, res) => {
-  res.status(200).json({ ok: true });
-});
 
 app.all("/mcp", async (req, res) => {
   const t0 = Date.now();
@@ -914,7 +843,3 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
-
-
-
-
