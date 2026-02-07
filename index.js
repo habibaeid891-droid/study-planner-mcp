@@ -277,16 +277,17 @@ server.tool(
 
       const allowedSubjects = subjects.map((s) => s.subjectId);
 
+      // 👇👇👇 ده الفرق المهم
       const text = `
 📘 منهج الصف الأول الثانوي
-
 السنة الدراسية: ${yearId}
 
 المواد:
 ${subjects
   .map(
     (s) =>
-      `- ${s.subjectId}:\n${s.lessons.map((l) => `  • ${l}`).join("\n")}`
+      `- ${s.subjectId}:
+${s.lessons.map((l) => `• ${l}`).join("\n")}`
   )
   .join("\n\n")}
       `.trim();
@@ -305,7 +306,9 @@ ${subjects
         content: [
           {
             type: "text",
-            text: `❌ خطأ أثناء تحميل المنهج: ${err?.message || String(err)}`,
+            text: `❌ خطأ أثناء تحميل المنهج: ${
+              err?.message || String(err)
+            }`,
           },
         ],
         structuredContent: {
@@ -317,6 +320,7 @@ ${subjects
     }
   }
 );
+
 
 // ✅ Tool #1: log_message (Firebase save + Redis append)
 server.tool(
@@ -849,5 +853,6 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
 
 
