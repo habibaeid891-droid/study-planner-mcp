@@ -247,13 +247,16 @@ function patchesToData(patches = [], allowClear = false) {
 server.tool(
   "get_curriculum_by_year",
   {
-    yearId: z.string().optional(),
+    // ✅ schema بسيط
+    yearId: z.string(),
   },
-  async (args) => {
-    const yearId = args?.yearId || "year_1_secondary";
+  async ({ yearId }) => {
+    const finalYearId = yearId && yearId.trim() !== ""
+      ? yearId
+      : "year_1_secondary";
 
     try {
-      const collectionName = `curriculum_${yearId}`;
+      const collectionName = `curriculum_${finalYearId}`;
       const snapshot = await db.collection(collectionName).get();
 
       const subjects = [];
@@ -275,45 +278,53 @@ server.tool(
         });
       });
 
-      const allowedSubjects = subjects.map((s) => s.subjectId);
+      if (subjects.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ لا يوجد منهج للسنة ${finalYearId}`,
+            },
+          ],
+          structuredContent: {
+            ok: false,
+            yearId: finalYearId,
+            subjects: [],
+          },
+        };
+      }
 
-      // 👇👇👇 ده الفرق المهم
-      const text = `
-📘 منهج الصف الأول الثانوي
+      const text = `📘 منهج السنة الدراسية: ${finalYearId}
 
-السنة الدراسية: ${yearId}
-
-المواد:
 ${subjects
   .map(
     (s) =>
-      `- ${s.subjectId}:\n${s.lessons.map((l) => `  • ${l}`).join("\n")}`
+      `- ${s.subjectId}\n${s.lessons.map((l) => `  • ${l}`).join("\n")}`
   )
-  .join("\n\n")}
-      `.trim();
+  .join("\n\n")}`;
 
       return {
         content: [{ type: "text", text }],
         structuredContent: {
           ok: true,
-          yearId,
+          yearId: finalYearId,
           subjects,
-          allowedSubjects,
+          subjectCount: subjects.length,
         },
       };
     } catch (err) {
       return {
+        isError: true,
         content: [
           {
             type: "text",
-            text: `❌ خطأ أثناء تحميل المنهج: ${err?.message || String(err)}`,
+            text: `❌ خطأ أثناء قراءة المنهج: ${err?.message || String(err)}`,
           },
         ],
         structuredContent: {
           ok: false,
           error: err?.message || String(err),
         },
-        isError: true,
       };
     }
   }
@@ -850,3 +861,4 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
+
