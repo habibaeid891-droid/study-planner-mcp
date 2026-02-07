@@ -18,8 +18,6 @@ try {
 
 const db = admin.firestore();
 
-
-
 /**
  * Existing Firebase Chat Functions
  */
@@ -320,9 +318,6 @@ ${subjects
     }
   }
 );
-
-
-
 
 // ✅ Tool #1: log_message (Firebase save + Redis append)
 server.tool(
@@ -765,8 +760,21 @@ const transport = new StreamableHTTPServerTransport({});
 app.get("/", (_req, res) => res.status(200).send("OK - agent-bridge is running"));
 
 app.all("/mcp", async (req, res) => {
+  const body = req.body;
   const t0 = Date.now();
-  const info = classifyMcpBody(req.body);
+  const info = classifyMcpBody(body);
+
+  // ✅ MCP JSON-RPC GUARD (الإضافة الوحيدة المهمة)
+  if (
+    !body ||
+    body.jsonrpc !== "2.0" ||
+    typeof body.method !== "string"
+  ) {
+    return res.status(400).json({
+      ok: false,
+      error: "Invalid MCP JSON-RPC request",
+    });
+  }
 
   if (MCP_DEBUG) {
     console.log(
@@ -777,13 +785,13 @@ app.all("/mcp", async (req, res) => {
         toolName: info.toolName,
         conversationId: info.conversationId,
         contentType: req.headers["content-type"],
-        bodyPreview: safeJson(req.body).slice(0, 500),
+        bodyPreview: safeJson(body).slice(0, 500),
       })
     );
   }
 
   try {
-    await transport.handleRequest(req, res, req.body);
+    await transport.handleRequest(req, res, body);
   } catch (err) {
     console.error("handleRequest error:", err);
     if (!res.headersSent) {
@@ -826,7 +834,6 @@ app.post("/debug/redis/clear", async (req, res) => {
  * 5) Start listening
  */
 const port = Number(process.env.PORT || 8080);
-
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Listening on ${port}`);
