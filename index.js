@@ -18,6 +18,8 @@ try {
 
 const db = admin.firestore();
 
+
+
 /**
  * Existing Firebase Chat Functions
  */
@@ -277,7 +279,7 @@ server.tool(
 
       const allowedSubjects = subjects.map((s) => s.subjectId);
 
-      // 👇👇👇 ده الفرق المهم
+
       const text = `
 📘 منهج الصف الأول الثانوي
 السنة الدراسية: ${yearId}
@@ -292,21 +294,27 @@ ${s.lessons.map((l) => `• ${l}`).join("\n")}`
   .join("\n\n")}
       `.trim();
 
-      return {
-        content: [{ type: "text", text }],
-        structuredContent: {
-          ok: true,
-          yearId,
-          subjects,
-          allowedSubjects,
-        },
-      };
+     return {
+  content: [
+    {
+      type: "text",
+      text: `Curriculum loaded successfully for ${yearId}`,
+    },
+  ],
+  structuredContent: {
+    ok: true,
+    yearId,
+    subjects,
+    allowedSubjects,
+  },
+};
+
     } catch (err) {
       return {
         content: [
           {
             type: "text",
-            text: `❌ خطأ أثناء تحميل المنهج: ${
+            text: ` خطأ أثناء تحميل المنهج: ${
               err?.message || String(err)
             }`,
           },
@@ -321,6 +329,261 @@ ${s.lessons.map((l) => `• ${l}`).join("\n")}`
   }
 );
 
+server.tool(
+  "save_schedule_for_year",
+  {
+    yearId: z.string(),
+    termId: z.string(),
+    weeks: z.any(), // schema بسيط علشان MCP
+  },
+  async ({ yearId, termId, weeks }) => {
+    try {
+      if (!yearId || !termId || !weeks) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Missing required arguments" }],
+          structuredContent: { ok: false },
+        };
+      }
+
+      // 1️⃣ نجيب كل الطلبة بنفس السنة
+      const studentsSnap = await db
+        .collection("students")
+        .where("yearId", "==", yearId)
+        .get();
+
+      if (studentsSnap.empty) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No students found for year ${yearId}`,
+            },
+          ],
+          structuredContent: {
+            ok: true,
+            yearId,
+            studentsCount: 0,
+          },
+        };
+      }
+
+      // 2️⃣ Batch write (مهم جدًا)
+      const batch = db.batch();
+      let count = 0;
+
+      studentsSnap.forEach((doc) => {
+        const studentRef = db
+          .collection("students")
+          .doc(doc.id);
+
+        batch.set(
+          studentRef,
+          {
+            studyPlan: {
+              termId,
+              weeks,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+          },
+          { merge: true }
+        );
+
+        count++;
+      });
+
+      // 3️⃣ تنفيذ الحفظ
+      await batch.commit();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Study plan saved for ${count} students`,
+          },
+        ],
+        structuredContent: {
+          ok: true,
+          yearId,
+          termId,
+          studentsUpdated: count,
+        },
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Failed to save schedule: ${err?.message || String(err)}`,
+          },
+        ],
+        structuredContent: {
+          ok: false,
+          error: err?.message || String(err),
+        },
+      };
+    }
+  }
+);
+
+server.tool(
+  "get_schedule_for_student",
+  {
+    studentId: z.string(),
+  },
+  async ({ studentId }) => {
+    try {
+      const ref = db.collection("students").doc(studentId);
+      const snap = await ref.get();
+
+      if (!snap.exists) {
+        return {
+          content: [
+            { type: "text", text: "Student not found" },
+          ],
+          structuredContent: {
+            ok: false,
+            error: "student-not-found",
+          },
+        };
+      }
+
+      const data = snap.data();
+      const studyPlan = data?.studyPlan;
+
+      if (!studyPlan) {
+        return {
+          content: [
+            { type: "text", text: "No schedule found for this student" },
+          ],
+          structuredContent: {
+            ok: true,
+            studentId,
+            studyPlan: null,
+          },
+        };
+      }
+
+      return {
+        content: [
+          { type: "text", text: "Schedule loaded" },
+        ],
+        structuredContent: {
+          ok: true,
+          studentId,
+          studyPlan,
+        },
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Failed to load schedule: ${err?.message || String(err)}`,
+          },
+        ],
+        structuredContent: {
+          ok: false,
+          error: err?.message || String(err),
+        },
+      };
+    }
+  }
+);
+
+server.tool(
+  "start_assignment",
+  {
+    studentId: z.string(),
+    assignmentId: z.string(),
+  },
+  async ({ studentId, assignmentId }) => {
+    try {
+      const ref = db.collection("students").doc(studentId);
+      const snap = await ref.get();
+
+      if (!snap.exists) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "Student not found" }],
+        };
+      }
+
+      const data = snap.data();
+      const plan = data.studyPlan;
+
+      if (!plan || !plan.weeks) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "No study plan found" }],
+        };
+      }
+
+      let found = false;
+
+      // 🔍 loop over weeks → subjects → assignments
+      for (const weekKey of Object.keys(plan.weeks)) {
+        const week = plan.weeks[weekKey];
+
+        for (const subject of Object.keys(week)) {
+          const assignments = week[subject];
+
+          if (!Array.isArray(assignments)) continue;
+
+          for (const a of assignments) {
+            if (a.assignmentId === assignmentId) {
+              a.status = "started";
+              a.startedAt = admin.firestore.FieldValue.serverTimestamp();
+              found = true;
+            }
+          }
+        }
+      }
+
+      if (!found) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Assignment ${assignmentId} not found`,
+            },
+          ],
+        };
+      }
+
+      await ref.update({
+        studyPlan: plan,
+        activeAssignmentId: assignmentId,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Assignment ${assignmentId} started`,
+          },
+        ],
+        structuredContent: {
+          ok: true,
+          assignmentId,
+        },
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to start assignment: ${err.message}`,
+          },
+        ],
+      };
+    }
+  }
+);
 
 // ✅ Tool #1: log_message (Firebase save + Redis append)
 server.tool(
@@ -763,21 +1026,8 @@ const transport = new StreamableHTTPServerTransport({});
 app.get("/", (_req, res) => res.status(200).send("OK - agent-bridge is running"));
 
 app.all("/mcp", async (req, res) => {
-  const body = req.body;
   const t0 = Date.now();
-  const info = classifyMcpBody(body);
-
-  // ✅ MCP JSON-RPC GUARD (الإضافة الوحيدة المهمة)
-  if (
-    !body ||
-    body.jsonrpc !== "2.0" ||
-    typeof body.method !== "string"
-  ) {
-    return res.status(400).json({
-      ok: false,
-      error: "Invalid MCP JSON-RPC request",
-    });
-  }
+  const info = classifyMcpBody(req.body);
 
   if (MCP_DEBUG) {
     console.log(
@@ -788,13 +1038,13 @@ app.all("/mcp", async (req, res) => {
         toolName: info.toolName,
         conversationId: info.conversationId,
         contentType: req.headers["content-type"],
-        bodyPreview: safeJson(body).slice(0, 500),
+        bodyPreview: safeJson(req.body).slice(0, 500),
       })
     );
   }
 
   try {
-    await transport.handleRequest(req, res, body);
+    await transport.handleRequest(req, res, req.body);
   } catch (err) {
     console.error("handleRequest error:", err);
     if (!res.headersSent) {
@@ -838,6 +1088,7 @@ app.post("/debug/redis/clear", async (req, res) => {
  */
 const port = Number(process.env.PORT || 8080);
 
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`Listening on ${port}`);
   console.log(`Redis cache: ${CACHE_ENABLED ? "ENABLED ✅" : "DISABLED (missing env vars)"}`);
@@ -853,6 +1104,3 @@ server
   .connect(transport)
   .then(() => console.log("MCP server connected ✅"))
   .catch((err) => console.error("MCP connect error:", err));
-
-
-
